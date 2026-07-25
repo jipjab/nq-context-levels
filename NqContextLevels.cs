@@ -83,6 +83,7 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
     private const string GroupNodes = "Nœuds HVN / LVN";
     private const string GroupZones = "Zones S/R testées";
     private const string GroupGaps = "Gaps de session";
+    private const string GroupRound = "Niveaux ronds";
     private const string GroupNaked = "Naked POC";
     private const string GroupDisplay = "Affichage";
     private const string GroupLabels = "Textes des étiquettes";
@@ -94,12 +95,18 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
     private readonly List<PriceGap> _gaps = new();
 
     private IReadOnlyList<RejectionZone> _zones = Array.Empty<RejectionZone>();
-    private bool _zonesStale;
+    private IReadOnlyList<RoundLevel> _roundLevels = Array.Empty<RoundLevel>();
+
+    /// <summary>Zones et niveaux ronds dérivent des mêmes rejets : une seule fraîcheur suffit.</summary>
+    private bool _derivedStale;
 
     private decimal _minWickRatio = 0.5m;
     private int _zoneLookbackBars = 1500;
     private int _zoneToleranceTicks = 8;
     private int _minTouches = 3;
+    private decimal _roundStepPoints = 100m;
+    private int _roundToleranceTicks = 8;
+    private int _roundMinTests = 3;
 
     private IPropertiesEditor _propertiesEditor;
 
@@ -262,7 +269,7 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
     public int ZoneToleranceTicks
     {
         get => _zoneToleranceTicks;
-        set { _zoneToleranceTicks = value; _zonesStale = true; }
+        set { _zoneToleranceTicks = value; _derivedStale = true; }
     }
 
     [Display(Name = "Tests minimum", GroupName = GroupZones, Order = 48,
@@ -271,7 +278,7 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
     public int MinTouches
     {
         get => _minTouches;
-        set { _minTouches = value; _zonesStale = true; }
+        set { _minTouches = value; _derivedStale = true; }
     }
 
     [Display(Name = "Opacité du remplissage", GroupName = GroupZones, Order = 50)]
@@ -286,6 +293,47 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
 
     [Display(Name = "Couleur flip (S et R)", GroupName = GroupZones, Order = 53)]
     public CrossColor FlipColor { get; set; } = CrossColors.Goldenrod;
+
+    #endregion
+
+    #region Réglages — niveaux ronds
+
+    [Display(Name = "Afficher les niveaux ronds", GroupName = GroupRound, Order = 80)]
+    public bool ShowRoundLevels { get; set; } = true;
+
+    [Display(Name = "Pas (points)", GroupName = GroupRound, Order = 81,
+        Description = "100 sur NQ donne quelques candidats par séance. 50 double leur nombre.")]
+    [Range(1, 5000)]
+    public decimal RoundStepPoints
+    {
+        get => _roundStepPoints;
+        set { _roundStepPoints = value; _derivedStale = true; }
+    }
+
+    [Display(Name = "Tolérance (ticks)", GroupName = GroupRound, Order = 82,
+        Description = "Distance maximale entre un rejet et le nombre rond pour qu'il compte.")]
+    [Range(1, 200)]
+    public int RoundToleranceTicks
+    {
+        get => _roundToleranceTicks;
+        set { _roundToleranceTicks = value; _derivedStale = true; }
+    }
+
+    [Display(Name = "Tests minimum", GroupName = GroupRound, Order = 83,
+        Description = "Comme pour les zones S/R, le compteur dépend de la tolérance : c'est un indice de contexte, pas une mesure absolue.")]
+    [Range(1, 30)]
+    public int RoundMinTests
+    {
+        get => _roundMinTests;
+        set { _roundMinTests = value; _derivedStale = true; }
+    }
+
+    [Display(Name = "Couleur", GroupName = GroupRound, Order = 84)]
+    public CrossColor RoundColor { get; set; } = CrossColors.Silver;
+
+    [Display(Name = "Style de trait", GroupName = GroupRound, Order = 85)]
+    public System.Drawing.Drawing2D.DashStyle RoundDashStyle { get; set; }
+        = System.Drawing.Drawing2D.DashStyle.Dot;
 
     #endregion
 
@@ -485,8 +533,9 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         _rejections.Clear();
         _lastTouch.Clear();
         _gaps.Clear();
+        _roundLevels = Array.Empty<RoundLevel>();
         _zones = Array.Empty<RejectionZone>();
-        _zonesStale = false;
+        _derivedStale = false;
         _currentDay = null;
         _composite = null;
         _hvn = Array.Empty<decimal>();
@@ -652,17 +701,23 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         if (drop > 0)
             _rejections.RemoveRange(0, drop);
 
-        _zonesStale = true;
+        _derivedStale = true;
     }
 
-    private void RebuildZones()
+    private void RebuildDerived()
     {
         _zones = RejectionZoneBuilder.Build(
             _rejections,
             InstrumentInfo.TickSize * ZoneToleranceTicks,
             MinTouches);
 
-        _zonesStale = false;
+        _roundLevels = RoundLevelBuilder.Build(
+            _rejections,
+            RoundStepPoints,
+            InstrumentInfo.TickSize * RoundToleranceTicks,
+            RoundMinTests);
+
+        _derivedStale = false;
     }
 
     private void RebuildComposite()
@@ -708,12 +763,12 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         var current = _days[^1];
         var previous = _days.Count > 1 ? _days[^2] : null;
 
+        if (_derivedStale && (ShowZones || ShowRoundLevels))
+            RebuildDerived();
+
         // Les bandes d'abord : les lignes de niveaux doivent rester lisibles par-dessus.
         if (ShowZones)
         {
-            if (_zonesStale)
-                RebuildZones();
-
             foreach (var zone in _zones)
                 DrawBand(context, font, zone.Low, zone.High, zone.LastBar, zone.Label,
                     zone.IsFlip ? FlipColor : zone.ResistanceCount > 0 ? ResistanceColor : SupportColor,
@@ -726,6 +781,14 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
                 DrawBand(context, font, gap.Low, gap.High, gap.Bar, GapLabel(gap),
                     gap.IsUp ? GapUpColor : GapDownColor,
                     GapOpacity, GapDashStyle);
+        }
+
+        if (ShowRoundLevels)
+        {
+            // L'étiquette porte déjà le prix rond : pas d'ajout automatique.
+            foreach (var level in _roundLevels)
+                DrawLevel(context, font, level.Price, level.LastBar, level.Label, RoundColor,
+                    appendPrice: false, dash: RoundDashStyle);
         }
 
         if (ShowPreviousDay && previous != null && previous.HasRthData)
@@ -855,7 +918,9 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         return result;
     }
 
-    private void DrawLevel(RenderContext context, RenderFont font, decimal price, int fromBar, string label, CrossColor color)
+    private void DrawLevel(RenderContext context, RenderFont font, decimal price, int fromBar,
+        string label, CrossColor color, bool appendPrice = true,
+        System.Drawing.Drawing2D.DashStyle dash = System.Drawing.Drawing2D.DashStyle.Solid)
     {
         var y = ChartInfo.GetYByPrice(price, false);
 
@@ -880,12 +945,12 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         // l'API de rendu en System.Drawing.Color : conversion ici, une seule fois.
         var renderColor = ToRenderColor(color);
 
-        context.DrawLine(new RenderPen(renderColor, LineWidth), x, y, lineEnd, y);
+        context.DrawLine(new RenderPen(renderColor, LineWidth) { DashStyle = dash }, x, y, lineEnd, y);
 
         if (!ShowLabels)
             return;
 
-        var text = BuildLabel(label, price);
+        var text = appendPrice ? BuildLabel(label, price) : label;
 
         if (text.Length == 0)
             return;
