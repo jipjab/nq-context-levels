@@ -71,7 +71,7 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
     /// Cible du lien « More details » de l'onglet About.
     /// ATAS n'accepte que https:// — une URL file:// produit un lien grisé.
     /// </summary>
-    private const string HelpUrl = "https://6ITLab.github.io/nq-context-levels/";
+    private const string HelpUrl = "https://jipjab.github.io/nq-context-levels/";
 
     private const string GroupHelp = "① Lisez-moi";
     private const string GroupTimezone = "② Fuseau horaire";

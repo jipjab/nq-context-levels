@@ -3,7 +3,7 @@
 Indicateur [ATAS X](https://atas.net/atas-x/) pour futures NQ — niveaux de contexte pré-market.
 Conçu comme **complément** du Volume Profile & TPO natif, pas comme remplacement.
 
-📖 **[Instructions complètes](https://6ITLab.github.io/nq-context-levels/)**
+📖 **[Instructions complètes](https://jipjab.github.io/nq-context-levels/)**
 
 ---
 
