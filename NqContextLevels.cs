@@ -55,6 +55,7 @@ public enum ProfileScope
 [Category("Custom")]
 [Description(AboutText)]
 [HelpLink(HelpUrl)]
+[Logo(LogoUrl)]
 public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
 {
     /// <summary>
@@ -72,6 +73,12 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
     /// ATAS n'accepte que https:// — une URL file:// produit un lien grisé.
     /// </summary>
     private const string HelpUrl = "https://jipjab.github.io/nq-context-levels/";
+
+    /// <summary>
+    /// Visuel de l'onglet About. LogoAttribute expose un GetLogoUri, donc il attend une URI —
+    /// même hébergement que la page d'aide.
+    /// </summary>
+    private const string LogoUrl = "https://jipjab.github.io/nq-context-levels/logo.png";
 
     private const string GroupHelp = "① Lisez-moi";
     private const string GroupTimezone = "② Fuseau horaire";
