@@ -142,6 +142,9 @@
 
 <nav>
   <a href="#niveaux">Niveaux</a>
+  <a href="#pocs">vPOC / nPOC</a>
+  <a href="#zones">Zones S/R</a>
+  <a href="#gaps">Gaps</a>
   <a href="#fuseau">Décalage horaire</a>
   <a href="#alignement">Alignement</a>
   <a href="#lisibilite">Lisibilité</a>
@@ -163,6 +166,8 @@
     <tr><td><span class="dot" style="background:var(--lvn)"></span><code>LDN H/L</code></td><td>Range de Londres</td><td>03:00 – 08:00</td></tr>
     <tr><td><span class="dot" style="background:var(--npoc)"></span><code>nPOC</code></td><td>POC de journées antérieures jamais retouchés</td><td>multi-jours</td></tr>
     <tr><td><span class="dot" style="background:var(--hvn)"></span><code>HVN</code> / <code>LVN</code></td><td>Nœuds de haut et faible volume du profil composite</td><td>N jours</td></tr>
+    <tr><td><span class="dot" style="background:var(--lvn)"></span><code>R×n</code> / <code>S×n</code> / <code>S/R×n</code></td><td>Zones ayant repoussé le prix n fois</td><td>N bougies</td></tr>
+    <tr><td><span class="dot" style="background:var(--accent)"></span><code>GAP+</code> / <code>GAP-</code></td><td>Vides de cotation non comblés</td><td>N gaps</td></tr>
   </tbody>
 </table>
 
@@ -173,6 +178,100 @@
 </p>
 
 <p>Aucun signal, aucune alerte, aucun ordre. L'indicateur dessine du contexte, la décision reste manuelle.</p>
+
+<h3 id="pocs">vPOC ou nPOC ?</h3>
+
+<p>
+  Ils ne s'opposent pas : <strong>un nPOC est un vPOC</strong>, avec un statut particulier.
+</p>
+
+<p>
+  Le <strong>vPOC</strong> (<em>volume Point of Control</em>) est le prix où le plus gros volume s'est
+  échangé sur une période donnée. Chaque profil en a un, par définition. Le « v » le distingue du POC
+  en mode TPO, qui mesure le temps passé plutôt que le volume — et les deux ne tombent pas au même prix.
+</p>
+
+<p>
+  Le <strong>nPOC</strong> (<em>naked POC</em>) est un vPOC d'une séance passée que le prix
+  <strong>n'est jamais revenu toucher depuis</strong>. C'est un statut, pas un calcul différent :
+  dès que le prix le traverse, il cesse d'être naked et disparaît du graphique.
+</p>
+
+<table>
+  <thead><tr><th></th><th>vPOC</th><th>nPOC</th></tr></thead>
+  <tbody>
+    <tr><td>Nature</td><td>Résultat d'un calcul</td><td>Statut d'un vPOC passé</td></tr>
+    <tr><td>Combien</td><td>Un par profil</td><td>Zéro à plusieurs, selon l'historique</td></tr>
+    <tr><td>Durée de vie</td><td>Figé à la clôture de sa période</td><td>Jusqu'au premier contact du prix</td></tr>
+    <tr><td>Qui le trace</td><td>Volume Profile &amp; TPO natif</td><td>Cet indicateur</td></tr>
+  </tbody>
+</table>
+
+<p>
+  Un POC marque une zone où beaucoup de contrats ont changé de mains — de la valeur acceptée.
+  L'idée est que le marché tend à revenir tester ces zones non revisitées, ce qui en ferait des
+  aimants et des cibles naturelles.
+</p>
+
+<div class="callout">
+  <span class="tag">Nuance</span>
+  <p>
+    Cette propriété d'aimant est une <strong>croyance largement partagée dans la communauté Market
+    Profile, pas un fait établi statistiquement</strong>. Mesure-la sur tes propres données — combien
+    de nPOC ont été touchés, en combien de séances — avant d'en faire une cible de sortie.
+  </p>
+</div>
+
+<p style="color:var(--muted); font-size:.9rem">
+  Piège de vocabulaire : certaines plateformes appellent le naked POC « vPOC » pour <em>virgin POC</em>.
+  Même abréviation, sens opposé. Ici, <code>vPOC</code> est le libellé d'ATAS pour son POC du jour,
+  <code>nPOC</code> désigne les POC non touchés tracés par cet indicateur.
+</p>
+
+<h3 id="zones">Zones S/R — un compteur relatif</h3>
+
+<p>
+  Une zone est un regroupement de <strong>rejets par mèche</strong> : une bougie dont la mèche
+  représente au moins la moitié de l'amplitude. Les prix extrêmes sont regroupés en bandes par
+  parcours glouton — un rejet rejoint la bande courante tant qu'il reste à moins de N ticks de sa
+  <strong>base</strong>, et non du dernier élément ajouté, ce qui empêche une bande de dériver par
+  effet de chaîne.
+</p>
+
+<p>
+  L'étiquette porte le compteur : <code>R×3</code> pour trois rejets par le haut, <code>S×2</code>
+  pour deux rebonds par le bas, <code>S/R×5</code> pour une zone ayant servi des deux côtés — un flip,
+  signalé par une couleur distincte.
+</p>
+
+<div class="callout">
+  <span class="tag">Le compteur est relatif</span>
+  <p>
+    Il dépend directement de la tolérance de regroupement et du seuil de mèche. Élargis la tolérance
+    et tes <code>R×3</code> deviennent des <code>R×8</code> — mêmes données, autre chiffre.
+    C'est un indice de contexte, <strong>pas une mesure absolue</strong>.
+  </p>
+</div>
+
+<h3 id="gaps">Gaps — vides de cotation réels</h3>
+
+<p>
+  Sur un contrat qui cote presque 24h, un gap clôture-cash → ouverture-cash <strong>n'est pas un vide
+  visuel</strong> : les bougies overnight occupent l'espace. Tracer une bande là recouvrirait des
+  bougies, donnant l'impression d'un gap déjà comblé.
+</p>
+
+<p>
+  La détection porte donc sur les extrêmes de deux bougies consécutives : un gap n'existe que si
+  <code>bas[i] &gt; haut[i-1]</code> ou <code>haut[i] &lt; bas[i-1]</code>. Peu de gaps en résultent,
+  mais tous sont réellement visibles — essentiellement l'ouverture du dimanche, les reprises après le
+  break de maintenance, et les réactions violentes aux publications macro.
+</p>
+
+<p>
+  Un gap est comblé par <strong>traversée complète</strong> : atteindre le bord opposé, pas simplement
+  entrer dans la plage. Les gaps comblés disparaissent du graphique.
+</p>
 
 <h2 id="fuseau">1. Le décalage horaire, avant tout le reste</h2>
 
@@ -273,10 +372,11 @@ cp bin/Release/net10.0-windows/NqContextLevels.dll \
 </ul>
 
 <p>
-  À noter aussi : la description de l'onglet <em>About</em> d'ATAS n'est pas alimentable depuis le code.
-  Elle provient du catalogue serveur d'ATAS, associé à un module enregistré dans le Personal Area.
-  Seul le lien <code>HelpLink</code> — celui qui mène à cette page — est réglable localement,
-  et uniquement en <code>https://</code>.
+  À noter aussi : ni la description ni l'image de l'onglet <em>About</em> ne sont alimentables depuis
+  le code. Les deux viennent du catalogue serveur d'ATAS, associées à un module enregistré dans le
+  Personal Area. Testés sans effet : <code>[Description]</code>, <code>AssemblyDescription</code>
+  et <code>[Logo]</code>. Seul <code>HelpLink</code> — le lien qui mène à cette page — est réglable
+  localement, et uniquement en <code>https://</code>.
 </p>
 
 <footer>

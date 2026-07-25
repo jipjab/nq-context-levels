@@ -55,7 +55,6 @@ public enum ProfileScope
 [Category("Custom")]
 [Description(AboutText)]
 [HelpLink(HelpUrl)]
-[Logo(LogoUrl)]
 public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
 {
     /// <summary>
@@ -74,23 +73,33 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
     /// </summary>
     private const string HelpUrl = "https://jipjab.github.io/nq-context-levels/";
 
-    /// <summary>
-    /// Visuel de l'onglet About. LogoAttribute expose un GetLogoUri, donc il attend une URI —
-    /// même hébergement que la page d'aide.
-    /// </summary>
-    private const string LogoUrl = "https://jipjab.github.io/nq-context-levels/logo.png";
+    // [Logo] a été testé et retiré : il compile mais n'a aucun effet sur un indicateur
+    // installé localement. Comme la description, le visuel d'About vient du catalogue serveur.
 
     private const string GroupHelp = "① Lisez-moi";
     private const string GroupTimezone = "② Fuseau horaire";
     private const string GroupSessions = "Sessions";
     private const string GroupProfile = "Profil volume";
     private const string GroupNodes = "Nœuds HVN / LVN";
+    private const string GroupZones = "Zones S/R testées";
+    private const string GroupGaps = "Gaps de session";
     private const string GroupNaked = "Naked POC";
     private const string GroupDisplay = "Affichage";
     private const string GroupLabels = "Textes des étiquettes";
 
     private readonly List<TradingDay> _days = new();
     private readonly List<NakedPoc> _nakedPocs = new();
+    private readonly List<Rejection> _rejections = new();
+    private readonly Dictionary<decimal, int> _lastTouch = new();
+    private readonly List<PriceGap> _gaps = new();
+
+    private IReadOnlyList<RejectionZone> _zones = Array.Empty<RejectionZone>();
+    private bool _zonesStale;
+
+    private decimal _minWickRatio = 0.5m;
+    private int _zoneLookbackBars = 1500;
+    private int _zoneToleranceTicks = 8;
+    private int _minTouches = 3;
 
     private IPropertiesEditor _propertiesEditor;
 
@@ -137,7 +146,17 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
     public string HelpReadability { get; set; } =
         "Groupe 'Affichage' : n'activer que la veille et l'overnight au départ. Groupe 'Textes' : vider un champ masque l'étiquette sans masquer la ligne.";
 
-    [Display(Name = "Limites", GroupName = GroupHelp, Order = 5)]
+    [Display(Name = "Zones S/R : compteur relatif", GroupName = GroupHelp, Order = 5)]
+    [ReadOnly(true)]
+    public string HelpZones { get; set; } =
+        "R×3 = trois rejets par le haut, S×2 = deux rebonds par le bas, S/R×5 = zone ayant servi des deux côtés (flip). ATTENTION : le compteur dépend directement de 'Tolérance de regroupement' et 'Part de mèche minimale'. Une même zone peut afficher ×3 ou ×8 selon ces réglages. C'est un indice de contexte, pas une mesure absolue.";
+
+    [Display(Name = "vPOC ou nPOC ?", GroupName = GroupHelp, Order = 6)]
+    [ReadOnly(true)]
+    public string HelpPocs { get; set; } =
+        "Un nPOC EST un vPOC. vPOC : prix du plus gros volume d'une période, tracé par l'indicateur natif. nPOC : un vPOC de séance passée jamais revenu touché ; il disparaît au premier contact. Réputés agir comme aimants — croyance répandue chez les traders de profil, pas un fait démontré. À vérifier sur tes propres données avant d'en faire une cible.";
+
+    [Display(Name = "Limites", GroupName = GroupHelp, Order = 7)]
     [ReadOnly(true)]
     public string HelpLimits { get; set; } =
         "La bougie en cours est exclue du calcul interne (retard d'une bougie). Sans données footprint, naked POC et nœuds n'apparaissent pas ; les niveaux de session, si. Jours fériés, demi-séances et heure d'été non gérés.";
@@ -213,6 +232,104 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
 
     #endregion
 
+    #region Réglages — zones S/R
+
+    [Display(Name = "Afficher les zones", GroupName = GroupZones, Order = 45)]
+    public bool ShowZones { get; set; } = true;
+
+    // La détection se fait pendant OnCalculate : changer ces deux réglages impose un recalcul complet.
+    [Display(Name = "Part de mèche minimale", GroupName = GroupZones, Order = 46,
+        Description = "Fraction de l'amplitude de la bougie que doit représenter la mèche pour compter comme rejet. 0,5 = la moitié.")]
+    [Range(0.2, 0.9)]
+    public decimal MinWickRatio
+    {
+        get => _minWickRatio;
+        set { _minWickRatio = value; RecalculateValues(); }
+    }
+
+    [Display(Name = "Profondeur (bougies)", GroupName = GroupZones, Order = 49)]
+    [Range(100, 20000)]
+    public int ZoneLookbackBars
+    {
+        get => _zoneLookbackBars;
+        set { _zoneLookbackBars = value; RecalculateValues(); }
+    }
+
+    // Le regroupement se fait au rendu : marquer les zones à reconstruire suffit.
+    [Display(Name = "Tolérance de regroupement (ticks)", GroupName = GroupZones, Order = 47,
+        Description = "Largeur maximale d'une bande. Détermine directement le compteur : plus large = moins de zones, mais des compteurs plus élevés.")]
+    [Range(1, 200)]
+    public int ZoneToleranceTicks
+    {
+        get => _zoneToleranceTicks;
+        set { _zoneToleranceTicks = value; _zonesStale = true; }
+    }
+
+    [Display(Name = "Tests minimum", GroupName = GroupZones, Order = 48,
+        Description = "Nombre de rejets requis pour qu'une bande soit affichée.")]
+    [Range(2, 20)]
+    public int MinTouches
+    {
+        get => _minTouches;
+        set { _minTouches = value; _zonesStale = true; }
+    }
+
+    [Display(Name = "Opacité du remplissage", GroupName = GroupZones, Order = 50)]
+    [Range(5, 160)]
+    public int ZoneOpacity { get; set; } = 40;
+
+    [Display(Name = "Couleur résistance", GroupName = GroupZones, Order = 51)]
+    public CrossColor ResistanceColor { get; set; } = CrossColors.IndianRed;
+
+    [Display(Name = "Couleur support", GroupName = GroupZones, Order = 52)]
+    public CrossColor SupportColor { get; set; } = CrossColors.MediumSeaGreen;
+
+    [Display(Name = "Couleur flip (S et R)", GroupName = GroupZones, Order = 53)]
+    public CrossColor FlipColor { get; set; } = CrossColors.Goldenrod;
+
+    #endregion
+
+    #region Réglages — gaps de session
+
+    [Display(Name = "Afficher les gaps", GroupName = GroupGaps, Order = 55)]
+    public bool ShowGaps { get; set; } = true;
+
+    [Display(Name = "Taille minimale (ticks)", GroupName = GroupGaps, Order = 56,
+        Description = "Largeur minimale du vide entre deux bougies. 4 ticks = 1 point sur NQ.")]
+    [Range(1, 400)]
+    public int MinGapTicks { get; set; } = 4;
+
+    // RenderPen calque l'API GDI+ (ATAS aliase CrossPen = System.Drawing.Pen) :
+    // le membre est DashStyle, pas le LineDashStyle exposé par PenSettings.
+    [Display(Name = "Style de trait", GroupName = GroupGaps, Order = 56,
+        Description = "Contour de la bande.")]
+    public System.Drawing.Drawing2D.DashStyle GapDashStyle { get; set; }
+        = System.Drawing.Drawing2D.DashStyle.Dash;
+
+    [Display(Name = "Afficher la date", GroupName = GroupGaps, Order = 57)]
+    public bool ShowGapDate { get; set; } = true;
+
+    [Display(Name = "Format de date", GroupName = GroupGaps, Order = 58,
+        Description = "Format .NET. Exemples : dd/MM HH:mm | dd/MM | HH:mm")]
+    public string GapDateFormat { get; set; } = "dd/MM HH:mm";
+
+    [Display(Name = "Gaps suivis", GroupName = GroupGaps, Order = 57,
+        Description = "Profondeur de l'historique conservé. Seuls les gaps non comblés sont tracés.")]
+    [Range(1, 500)]
+    public int MaxGaps { get; set; } = 100;
+
+    [Display(Name = "Opacité du remplissage", GroupName = GroupGaps, Order = 58)]
+    [Range(5, 160)]
+    public int GapOpacity { get; set; } = 35;
+
+    [Display(Name = "Couleur gap haussier", GroupName = GroupGaps, Order = 59)]
+    public CrossColor GapUpColor { get; set; } = CrossColors.CornflowerBlue;
+
+    [Display(Name = "Couleur gap baissier", GroupName = GroupGaps, Order = 60)]
+    public CrossColor GapDownColor { get; set; } = CrossColors.Sienna;
+
+    #endregion
+
     #region Réglages — naked POC
 
     [Display(Name = "Nombre max de naked POC affichés", GroupName = GroupNaked, Order = 50,
@@ -230,8 +347,9 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         Description = "Format .NET appliqué au prix. Exemples : 0.## | 0.00 | # ##0")]
     public string PriceFormat { get; set; } = "0.##";
 
-    [Display(Name = "Afficher le prix", GroupName = GroupLabels, Order = 101)]
-    public bool ShowPriceInLabel { get; set; } = true;
+    [Display(Name = "Afficher le prix", GroupName = GroupLabels, Order = 101,
+        Description = "Masqué par défaut : l'échelle de prix donne déjà la valeur, l'étiquette n'a besoin que de nommer le niveau.")]
+    public bool ShowPriceInLabel { get; set; }
 
     [Display(Name = "Haut de la veille", GroupName = GroupLabels, Order = 110)]
     public string LabelPrevHigh { get; set; } = "PDH";
@@ -259,6 +377,12 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
 
     [Display(Name = "Bas Londres", GroupName = GroupLabels, Order = 121)]
     public string LabelLondonLow { get; set; } = "LDN L";
+
+    [Display(Name = "Gap haussier", GroupName = GroupLabels, Order = 122)]
+    public string LabelGapUp { get; set; } = "GAP+";
+
+    [Display(Name = "Gap baissier", GroupName = GroupLabels, Order = 123)]
+    public string LabelGapDown { get; set; } = "GAP-";
 
     [Display(Name = "Naked POC", GroupName = GroupLabels, Order = 124)]
     public string LabelNakedPoc { get; set; } = "nPOC";
@@ -291,13 +415,22 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
     [Display(Name = "Étiquettes", GroupName = GroupDisplay, Order = 66)]
     public bool ShowLabels { get; set; } = true;
 
-    [Display(Name = "Épaisseur des lignes", GroupName = GroupDisplay, Order = 67)]
+    [Display(Name = "Prolonger vers la gauche", GroupName = GroupDisplay, Order = 67,
+        Description = "Trace sur toute la largeur du graphique, comme l'option Extend Lines du profil natif. Décoché, la ligne démarre à la bougie où le niveau s'est formé.")]
+    public bool ExtendLeft { get; set; } = true;
+
+    [Display(Name = "Épaisseur des lignes", GroupName = GroupDisplay, Order = 68)]
     [Range(1, 5)]
     public int LineWidth { get; set; } = 1;
 
-    [Display(Name = "Taille de police", GroupName = GroupDisplay, Order = 68)]
+    [Display(Name = "Taille de police", GroupName = GroupDisplay, Order = 69)]
     [Range(6, 30)]
     public int FontSize { get; set; } = 10;
+
+    [Display(Name = "Marge droite (px)", GroupName = GroupDisplay, Order = 70,
+        Description = "Doit couvrir l'échelle de prix ET l'étiquette : ChartArea.Width inclut l'axe, qui est ensuite exclu du rendu. Étiquette tronquée => augmente. Trop d'espace perdu => diminue.")]
+    [Range(30, 400)]
+    public int LabelGutter { get; set; } = 170;
 
     [Display(Name = "Couleur veille", GroupName = GroupDisplay, Order = 70)]
     public CrossColor PreviousDayColor { get; set; } = CrossColors.SteelBlue;
@@ -349,6 +482,11 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         _binSize = InstrumentInfo.TickSize * BinTicks;
         _days.Clear();
         _nakedPocs.Clear();
+        _rejections.Clear();
+        _lastTouch.Clear();
+        _gaps.Clear();
+        _zones = Array.Empty<RejectionZone>();
+        _zonesStale = false;
         _currentDay = null;
         _composite = null;
         _hvn = Array.Empty<decimal>();
@@ -373,12 +511,21 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
 
         _currentDay.LastBar = index;
 
-        TouchNakedPocs(candle.Low, candle.High);
-
         var londonStart = MinutesFromGlobex(LondonOpen);
         var premarketStart = MinutesFromGlobex(PremarketOpen);
         var rthStart = MinutesFromGlobex(RthOpen);
         var rthEnd = MinutesFromGlobex(RthClose);
+
+        // Le gap est enregistré avant le contrôle de comblement : sa propre bougie
+        // ne peut pas le refermer, mais l'ordre reste explicite.
+        RegisterGap(candle, index);
+
+        TouchNakedPocs(candle.Low, candle.High);
+        FillGaps(candle.Low, candle.High);
+        CollectRejections(candle, index);
+
+        // Une bougie de plus : les derniers contacts mémorisés ne sont plus à jour.
+        _lastTouch.Clear();
 
         if (minutes < rthStart)
             _currentDay.Overnight.Add(candle.High, candle.Low);
@@ -459,6 +606,65 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
             _nakedPocs.RemoveRange(0, _nakedPocs.Count - MaxNakedPocs);
     }
 
+    private void RegisterGap(IndicatorCandle candle, int index)
+    {
+        if (index == 0)
+            return;
+
+        var previous = GetCandle(index - 1);
+
+        var gap = PriceGap.Detect(
+            previous.High, previous.Low,
+            candle.High, candle.Low,
+            index, candle.Time, InstrumentInfo.TickSize * MinGapTicks);
+
+        if (gap == null)
+            return;
+
+        _gaps.Add(gap);
+
+        if (_gaps.Count > MaxGaps)
+            _gaps.RemoveRange(0, _gaps.Count - MaxGaps);
+    }
+
+    private void FillGaps(decimal low, decimal high)
+    {
+        for (var i = _gaps.Count - 1; i >= 0; i--)
+        {
+            if (_gaps[i].IsFilledBy(low, high))
+                _gaps.RemoveAt(i);
+        }
+    }
+
+    private void CollectRejections(IndicatorCandle candle, int index)
+    {
+        RejectionZoneBuilder.Detect(
+            candle.Open, candle.High, candle.Low, candle.Close,
+            index, MinWickRatio, _rejections);
+
+        // Les rejets sont ajoutés dans l'ordre des bougies : purger par l'avant suffit.
+        var cutoff = index - ZoneLookbackBars;
+        var drop = 0;
+
+        while (drop < _rejections.Count && _rejections[drop].Bar < cutoff)
+            drop++;
+
+        if (drop > 0)
+            _rejections.RemoveRange(0, drop);
+
+        _zonesStale = true;
+    }
+
+    private void RebuildZones()
+    {
+        _zones = RejectionZoneBuilder.Build(
+            _rejections,
+            InstrumentInfo.TickSize * ZoneToleranceTicks,
+            MinTouches);
+
+        _zonesStale = false;
+    }
+
     private void RebuildComposite()
     {
         var completed = _days.Where(d => d.Poc.HasValue).ToList();
@@ -501,6 +707,26 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         var font = new RenderFont("Arial", FontSize);
         var current = _days[^1];
         var previous = _days.Count > 1 ? _days[^2] : null;
+
+        // Les bandes d'abord : les lignes de niveaux doivent rester lisibles par-dessus.
+        if (ShowZones)
+        {
+            if (_zonesStale)
+                RebuildZones();
+
+            foreach (var zone in _zones)
+                DrawBand(context, font, zone.Low, zone.High, zone.LastBar, zone.Label,
+                    zone.IsFlip ? FlipColor : zone.ResistanceCount > 0 ? ResistanceColor : SupportColor,
+                    ZoneOpacity, System.Drawing.Drawing2D.DashStyle.Solid);
+        }
+
+        if (ShowGaps)
+        {
+            foreach (var gap in _gaps)
+                DrawBand(context, font, gap.Low, gap.High, gap.Bar, GapLabel(gap),
+                    gap.IsUp ? GapUpColor : GapDownColor,
+                    GapOpacity, GapDashStyle);
+        }
 
         if (ShowPreviousDay && previous != null && previous.HasRthData)
         {
@@ -549,6 +775,86 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
             DrawLevel(context, font, price, nodeStart, LabelLvn, LvnColor);
     }
 
+    /// <summary>
+    /// Bande de prix : zones S/R et gaps partagent ce tracé, seules les données diffèrent.
+    /// </summary>
+    private string GapLabel(PriceGap gap)
+    {
+        var name = gap.IsUp ? LabelGapUp : LabelGapDown;
+
+        return ShowGapDate ? $"{name} {gap.Time.AddHours(TimeOffsetHours).ToString(GapDateFormat)}" : name;
+    }
+
+    private void DrawBand(RenderContext context, RenderFont font,
+        decimal low, decimal high, int fromBar, string label, CrossColor color, int opacity,
+        System.Drawing.Drawing2D.DashStyle dash)
+    {
+        var yTop = ChartInfo.GetYByPrice(high, false);
+        var yBottom = ChartInfo.GetYByPrice(low, false);
+
+        if (yBottom < 0 || yTop > ChartArea.Height)
+            return;
+
+        var lineEnd = ChartArea.Width - LabelGutter;
+
+        if (lineEnd <= 0)
+            return;
+
+        // Zones et gaps connaissent leur bougie de référence : aucune recherche de contact nécessaire.
+        var x = ExtendLeft ? 0 : ChartInfo.GetXByBar(fromBar, false);
+
+        if (x >= lineEnd)
+            return;
+
+        if (x < 0)
+            x = 0;
+
+        var renderColor = ToRenderColor(color);
+        var height = Math.Max(2, yBottom - yTop);
+        var rectangle = new System.Drawing.Rectangle(x, yTop, lineEnd - x, height);
+
+        context.FillRectangle(System.Drawing.Color.FromArgb(opacity, renderColor), rectangle);
+        context.DrawRectangle(new RenderPen(renderColor, 1) { DashStyle = dash }, rectangle);
+
+        if (!ShowLabels)
+            return;
+
+        var text = BuildLabel(label, (low + high) / 2m);
+
+        if (text.Length == 0)
+            return;
+
+        context.DrawString(text, font, renderColor, lineEnd + 5, yTop + height / 2 - (FontSize + 2) / 2);
+    }
+
+    /// <summary>
+    /// Bougie la plus récente dont l'amplitude contient le prix. Si le niveau n'a jamais été
+    /// retouché — le cas par définition d'un naked POC — on retombe sur sa bougie de formation.
+    /// Le résultat est mis en cache jusqu'à la bougie suivante.
+    /// </summary>
+    private int FindLastTouch(decimal price, int formationBar)
+    {
+        if (_lastTouch.TryGetValue(price, out var cached))
+            return cached;
+
+        var result = formationBar;
+
+        for (var i = _nextBar - 1; i > formationBar; i--)
+        {
+            var candle = GetCandle(i);
+
+            if (price >= candle.Low && price <= candle.High)
+            {
+                result = i;
+                break;
+            }
+        }
+
+        _lastTouch[price] = result;
+
+        return result;
+    }
+
     private void DrawLevel(RenderContext context, RenderFont font, decimal price, int fromBar, string label, CrossColor color)
     {
         var y = ChartInfo.GetYByPrice(price, false);
@@ -556,9 +862,15 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         if (y < 0 || y > ChartArea.Height)
             return;
 
-        var x = ChartInfo.GetXByBar(fromBar, false);
+        // La ligne s'arrête avant la gouttière : l'étiquette s'y écrit sans jamais chevaucher le tracé.
+        var lineEnd = ChartArea.Width - LabelGutter;
 
-        if (x >= ChartArea.Width)
+        if (lineEnd <= 0)
+            return;
+
+        var x = ExtendLeft ? 0 : ChartInfo.GetXByBar(FindLastTouch(price, fromBar), false);
+
+        if (x >= lineEnd)
             return;
 
         if (x < 0)
@@ -568,7 +880,7 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         // l'API de rendu en System.Drawing.Color : conversion ici, une seule fois.
         var renderColor = ToRenderColor(color);
 
-        context.DrawLine(new RenderPen(renderColor, LineWidth), x, y, ChartArea.Width, y);
+        context.DrawLine(new RenderPen(renderColor, LineWidth), x, y, lineEnd, y);
 
         if (!ShowLabels)
             return;
@@ -578,11 +890,9 @@ public sealed class NqContextLevels : Indicator, IPropertiesEditorOwner
         if (text.Length == 0)
             return;
 
-        var size = context.MeasureString(text, font);
-        var textX = ChartArea.Width - (int)size.Width - 4;
-        var textY = y - (int)size.Height - 1;
-
-        context.DrawString(text, font, renderColor, textX, textY);
+        // Position fixe, alignée à gauche dans la gouttière : MeasureString sous-estimait
+        // la largeur du texte, ce qui poussait les étiquettes hors du graphique.
+        context.DrawString(text, font, renderColor, lineEnd + 5, y - (FontSize + 2) / 2);
     }
 
     /// <summary>

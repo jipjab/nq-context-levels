@@ -18,11 +18,67 @@ Conçu comme **complément** du Volume Profile & TPO natif, pas comme remplaceme
 | `LDN H/L` | Range de Londres | 03:00 – 08:00 |
 | `nPOC` | POC de journées antérieures jamais retouchés | multi-jours |
 | `HVN` / `LVN` | Nœuds de haut et faible volume du profil composite | N jours |
+| `R×n` / `S×n` / `S/R×n` | Zones ayant repoussé le prix n fois | N bougies |
+| `GAP+` / `GAP-` | Vides de cotation non comblés | N gaps |
 
 Le profil du jour (`vPOC` / `VAH` / `VAL`) n'est **volontairement pas tracé** : le Volume Profile & TPO
 natif le fait mieux. Les deux indicateurs sont faits pour cohabiter.
 
 Aucun signal, aucune alerte, aucun ordre. L'indicateur dessine du contexte, la décision reste manuelle.
+
+### vPOC ou nPOC ?
+
+Ils ne s'opposent pas : **un nPOC est un vPOC**, avec un statut particulier.
+
+Le **vPOC** (*volume Point of Control*) est le prix où le plus gros volume s'est échangé sur une
+période donnée. Chaque profil en a un, par définition. Le « v » le distingue du POC en mode TPO,
+qui mesure le temps passé plutôt que le volume — les deux ne tombent pas au même prix.
+
+Le **nPOC** (*naked POC*) est un vPOC d'une séance passée que le prix **n'est jamais revenu toucher
+depuis**. C'est un statut, pas un calcul différent : dès que le prix le traverse, il disparaît.
+
+| | vPOC | nPOC |
+|---|---|---|
+| Nature | Résultat d'un calcul | Statut d'un vPOC passé |
+| Combien | Un par profil | Zéro à plusieurs, selon l'historique |
+| Durée de vie | Figé à la clôture de sa période | Jusqu'au premier contact du prix |
+| Qui le trace | Volume Profile & TPO natif | Cet indicateur |
+
+Un POC marque une zone où beaucoup de contrats ont changé de mains — de la valeur acceptée. L'idée
+est que le marché tend à revenir tester ces zones non revisitées, ce qui en ferait des aimants.
+
+> **Nuance.** Cette propriété d'aimant est une croyance largement partagée dans la communauté Market
+> Profile, **pas un fait établi statistiquement**. Mesure-la sur tes propres données — combien de
+> nPOC ont été touchés, en combien de séances — avant d'en faire une cible de sortie.
+
+Piège de vocabulaire : certaines plateformes appellent le naked POC « vPOC » pour *virgin POC*.
+Même abréviation, sens opposé.
+
+### Zones S/R — un compteur relatif
+
+Une zone est un regroupement de **rejets par mèche** : une bougie dont la mèche représente au moins
+la moitié de l'amplitude. Les prix extrêmes sont regroupés en bandes par parcours glouton — un rejet
+rejoint la bande courante tant qu'il reste à moins de N ticks de sa **base**, et non du dernier
+élément ajouté, ce qui empêche une bande de dériver par effet de chaîne.
+
+L'étiquette porte le compteur : `R×3` (trois rejets par le haut), `S×2` (deux rebonds par le bas),
+`S/R×5` (zone ayant servi des deux côtés — un flip).
+
+> **Le compteur n'est pas une mesure absolue.** Il dépend directement de la tolérance de regroupement
+> et du seuil de mèche. Élargis la tolérance et tes `R×3` deviennent des `R×8` — mêmes données, autre
+> chiffre. C'est un indice de contexte, à lire comme tel.
+
+### Gaps — vides de cotation réels
+
+Sur un contrat qui cote presque 24h, un gap clôture-cash → ouverture-cash **n'est pas un vide
+visuel** : les bougies overnight occupent l'espace. La détection porte donc sur les extrêmes de deux
+bougies consécutives — un gap n'existe que si `bas[i] > haut[i-1]` ou `haut[i] < bas[i-1]`.
+
+Conséquence : peu de gaps, mais tous réellement visibles à l'écran. Essentiellement l'ouverture du
+dimanche, les reprises après le break de maintenance, et les réactions violentes aux publications.
+
+Un gap est comblé par **traversée complète** — atteindre le bord opposé, pas simplement entrer dans
+la plage. Les gaps comblés disparaissent.
 
 ## Prérequis
 
@@ -97,10 +153,11 @@ sinon ATAS X rejette le DLL. Tout le rendu passe par `RenderContext`, le chemin 
 
 ### Onglet About
 
-La description affichée dans l'onglet *About* **n'est pas alimentable depuis le code** :
-elle provient du catalogue serveur d'ATAS, associée à un module enregistré dans le Personal Area
+**Ni la description ni l'image de l'onglet *About* ne sont alimentables depuis le code.** Les deux
+proviennent du catalogue serveur d'ATAS, associées à un module enregistré dans le Personal Area
 (cf. [Indicators and strategies distribution](https://docs.atas.net/en/md_DataFeedsCore_2Docs_2en_20140__IndicatorsStrategiesDistribution.html)).
-Ni `[Description]`, ni `AssemblyDescription` ne sont lus.
+Testés sans effet : `[Description]`, `AssemblyDescription`, et `[Logo]` d'`OFT.Attributes`.
+Indice cohérent : aucun indicateur natif n'utilise `LogoAttribute` dans les assemblies livrées.
 
 En revanche `[HelpLink]` d'`OFT.Attributes` fonctionne localement — c'est lui qui alimente le lien
 « More details ». **Il n'accepte que des URL `https://`** ; une URL `file://` produit un lien grisé.
