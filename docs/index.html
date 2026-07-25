@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>6ITLab — NQ Context Levels</title>
+<style>
+  :root {
+    --bg: #14161a;
+    --panel: #1c1f25;
+    --line: #2b3038;
+    --text: #d7dae0;
+    --muted: #8b939f;
+    --accent: #4a9eff;
+    --warn: #f0a742;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 3rem 1.5rem 6rem;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 780px; margin: 0 auto; }
+  h1 { font-size: 1.9rem; margin: 0 0 .3rem; letter-spacing: -.01em; }
+  .sub { color: var(--muted); margin: 0 0 2.5rem; }
+  h2 {
+    font-size: 1.15rem; margin: 3rem 0 1rem;
+    padding-bottom: .5rem; border-bottom: 1px solid var(--line);
+  }
+  h3 { font-size: 1rem; margin: 1.8rem 0 .5rem; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .92rem; }
+  th, td { text-align: left; padding: .55rem .7rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  code {
+    background: var(--panel); padding: .12em .4em; border-radius: 3px;
+    font: .88em ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  pre {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+    padding: .9rem 1.1rem; overflow-x: auto;
+  }
+  pre code { background: none; padding: 0; }
+  .callout {
+    background: var(--panel); border-left: 3px solid var(--warn);
+    padding: 1rem 1.2rem; border-radius: 0 6px 6px 0; margin: 1.5rem 0;
+  }
+  .callout strong { color: var(--warn); }
+  ul, ol { padding-left: 1.3rem; }
+  li { margin: .4rem 0; }
+  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid var(--line); color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>NQ Context Levels</h1>
+<p class="sub">6ITLab — indicateur ATAS X · complément du Volume Profile &amp; TPO natif</p>
+
+<p>Trace les niveaux de contexte à surveiller avant l'ouverture, et les laisse en place pendant la séance.
+Aucun signal, aucune alerte, aucun ordre : l'indicateur dessine du contexte, la décision reste manuelle.</p>
+
+<h2>Niveaux tracés</h2>
+
+<table>
+  <tr><th>Étiquette</th><th>Signification</th><th>Fenêtre</th></tr>
+  <tr><td><code>PDH</code> / <code>PDL</code></td><td>Haut et bas de la session cash de la veille</td><td>09:30 – 16:00</td></tr>
+  <tr><td><code>PDC</code></td><td>Clôture de la veille</td><td>16:00</td></tr>
+  <tr><td><code>ONH</code> / <code>ONL</code></td><td>Extrêmes de la session overnight</td><td>18:00 – 09:30</td></tr>
+  <tr><td><code>ASIA H/L</code></td><td>Range asiatique</td><td>18:00 – 03:00</td></tr>
+  <tr><td><code>LDN H/L</code></td><td>Range de Londres</td><td>03:00 – 08:00</td></tr>
+  <tr><td><code>nPOC</code></td><td>POC de journées antérieures jamais retouchés</td><td>multi-jours</td></tr>
+  <tr><td><code>HVN</code> / <code>LVN</code></td><td>Nœuds de haut et faible volume du profil composite</td><td>N jours</td></tr>
+</table>
+
+<p>Le profil du jour — <code>vPOC</code>, <code>VAH</code>, <code>VAL</code> — n'est volontairement pas tracé :
+le Volume Profile &amp; TPO natif d'ATAS le fait mieux. Les deux indicateurs sont conçus pour cohabiter.</p>
+
+<h2>1. Le décalage horaire, avant tout le reste</h2>
+
+<div class="callout">
+<strong>À régler en premier.</strong> Toutes les fenêtres de session sont exprimées en heure de New York.
+Si les bougies de ton datafeed sont dans un autre fuseau, chaque niveau sera faux —
+<strong>sans aucun message d'erreur</strong>. C'est le seul réglage qui peut invalider silencieusement tout le reste.
+</div>
+
+<p>Réglage dans le groupe <strong>② Fuseau horaire</strong>. Deux tests de validation :</p>
+
+<ul>
+  <li><strong>PDH / PDL</strong> doivent tomber exactement sur le plus haut et le plus bas de la session cash de la veille. Vérifiable à l'œil en une seconde.</li>
+  <li><strong>ONH / ONL</strong> doivent cesser d'évoluer pile à l'ouverture du cash, et <strong>LDN H/L</strong> se figer à 08:00.</li>
+</ul>
+
+<p>Tant que ces deux tests ne passent pas, ne touche à aucun autre réglage.</p>
+
+<h2>2. S'aligner sur le Volume Profile &amp; TPO</h2>
+
+<p>Les naked POC et les nœuds HVN/LVN sont calculés en interne. Pour qu'ils raisonnent sur la même
+distribution que ce que tu lis à l'écran, recopie ces réglages depuis l'indicateur natif
+vers le groupe <strong>Profil volume</strong> :</p>
+
+<table>
+  <tr><th>Volume Profile &amp; TPO</th><th>NQ Context Levels</th></tr>
+  <tr><td>External period</td><td>Étendue du profil <span style="color:var(--muted)">(Daily → Journée complète)</span></td></tr>
+  <tr><td>Profile type</td><td>Base de calcul <span style="color:var(--muted)">(Volume / Ticks / Time)</span></td></tr>
+  <tr><td>Prices per row</td><td>Taille de bin (ticks)</td></tr>
+</table>
+
+<h2>3. Lisibilité</h2>
+
+<p>Le groupe <strong>Affichage</strong> a un interrupteur par famille de niveaux.
+Commence avec la veille et l'overnight seuls, ajoute le reste progressivement —
+tout activer d'un coup rend le graphique illisible.</p>
+
+<p>Le groupe <strong>Textes des étiquettes</strong> permet de renommer chaque intitulé.
+<strong>Vider un champ masque l'étiquette sans masquer la ligne</strong> : c'est le moyen de
+désencombrer sans perdre le tracé.</p>
+
+<h3>Calage des nœuds HVN / LVN</h3>
+
+<p>Seul réglage qui demande du jugement. Garde le profil natif visible à côté :
+les HVN doivent tomber sur les parties épaisses de son histogramme, les LVN sur les parties fines.
+Trop de lignes ? Monte le seuil HVN vers 0.80. Les nœuds s'empilent ? Augmente la séparation minimale.</p>
+
+<h2>Compiler et installer</h2>
+
+<pre><code>cd ~/Documents/Dev/Trading/Atas-x/NqContextLevels
+dotnet build -c Release
+cp bin/Release/net10.0-windows/NqContextLevels.dll \
+   ~/Library/Application\ Support/ATAS/Indicators/</code></pre>
+
+<p>ATAS X surveille ce dossier et recharge automatiquement. En revanche, <strong>l'instance déjà posée
+sur le chart conserve ses anciennes propriétés</strong> : supprime-la via la corbeille dans la liste
+« Added », puis rajoute-la, sinon les nouveaux réglages n'apparaîtront pas.</p>
+
+<h2>Limites assumées</h2>
+
+<ul>
+  <li><strong>La bougie en formation est exclue</strong> du calcul interne : sinon son volume serait compté à chaque tick. Les niveaux dérivés du profil accusent donc un retard d'une bougie. C'est un choix de justesse.</li>
+  <li><strong>Dépendance aux données footprint.</strong> Si ton datafeed ne charge pas l'historique tick sur la profondeur demandée, les naked POC et les nœuds n'apparaîtront pas — les niveaux de session, si. Réduis le nombre de jours du composite pour vérifier.</li>
+  <li><strong>Jours fériés et demi-séances non gérés.</strong> Une séance écourtée produit un profil calculé sur une plage réduite, sans avertissement.</li>
+  <li><strong>Heure d'été ignorée.</strong> Le décalage horaire est un entier fixe, à réajuster deux fois par an si ton datafeed est en UTC.</li>
+  <li><strong>Détection HVN/LVN heuristique.</strong> Maxima et minima locaux sur profil lissé, pas une méthode statistique. Les seuils demandent un calage visuel.</li>
+</ul>
+
+<h2>Notes techniques ATAS X</h2>
+
+<p>Quatre écarts entre la documentation officielle et la réalité du bundle macOS, constatés au développement :</p>
+
+<ul>
+  <li><code>RenderContext</code>, <code>RenderPen</code> et <code>RenderFont</code> vivent dans <code>OFT.Rendering.dll</code>, pas dans <code>ATAS.Indicators</code> comme le laissent croire les exemples.</li>
+  <li>Les propriétés de réglage doivent être en <code>System.Windows.Media.Color</code>, mais l'API de rendu attend <code>System.Drawing.Color</code> — conversion nécessaire.</li>
+  <li><code>OFT.PlatformX.runtimeconfig.json</code> n'existe pas dans ce build. Le TFM se lit directement dans la DLL de référence.</li>
+  <li><code>Indicator</code> expose déjà un membre <code>ValueAreaPercent</code> : le redéclarer le masque silencieusement.</li>
+</ul>
+
+<p>À noter aussi : la description de l'onglet <em>About</em> d'ATAS n'est pas alimentable depuis le code.
+Elle provient du catalogue serveur d'ATAS, associé à un module enregistré dans le Personal Area.
+Seul le lien <code>HelpLink</code> — celui qui mène à cette page — est réglable localement, et uniquement en <code>https://</code>.</p>
+
+<footer>
+6ITLab · usage personnel · aucun conseil en investissement
+</footer>
+
+</main>
+</body>
+</html>

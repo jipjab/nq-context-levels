@@ -1,0 +1,72 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!--
+      TFM vérifié le 2026-07-25 : ATAS.Indicators.dll de ce bundle cible
+      .NETCoreApp,Version=v10.0 => on doit cibler net10.0.
+      (Le fichier OFT.PlatformX.runtimeconfig.json annoncé par la doc
+       n'existe pas dans ce build ; le TFM a été lu dans la DLL elle-même.)
+    -->
+    <TargetFramework>net10.0-windows</TargetFramework>
+
+    <!--
+      UseWPF est requis : l'API couleur d'ATAS (CrossColor) est un alias de
+      System.Windows.Media.Color, donc PresentationCore est nécessaire à la COMPILATION.
+      EnableWindowsTargeting autorise le build d'une cible Windows depuis macOS
+      (le SDK télécharge les reference packs). On ne fait que COMPILER ici,
+      pas exécuter du WPF — ATAS X convertit les types au chargement du DLL.
+    -->
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>NqContextLevels</AssemblyName>
+    <RootNamespace>NqContextLevels</RootNamespace>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+
+    <!--
+      Métadonnées d'assembly. Hypothèse : l'onglet About d'ATAS les affiche
+      (la plateforme référence AssemblyDescriptionAttribute et ModuleHelpLinkAttribute).
+    -->
+    <Product>6ITLab - NQ Context Levels</Product>
+    <Authors>jip</Authors>
+    <Company>6ITLab</Company>
+    <Version>1.0.0</Version>
+    <AssemblyVersion>1.0.0.0</AssemblyVersion>
+    <FileVersion>1.0.0.0</FileVersion>
+    <Copyright>Usage personnel</Copyright>
+    <Description>Carte de contexte pré-market pour NQ : niveaux de session (Asia, Londres, overnight, Initial Balance), profil de la veille (vPOC / VAH / VAL), naked POC et nœuds HVN / LVN d'un profil composite. Régler le décalage horaire EN PREMIER : l'Initial Balance doit couvrir la première heure du cash, sinon tous les niveaux sont faux. Pour s'aligner sur le Volume Profile and TPO natif, recopier External period, Profile type, Value area percent et Prices per row dans le groupe Profil volume. Aucun signal ni ordre : l'indicateur dessine du contexte, la decision reste manuelle.</Description>
+  </PropertyGroup>
+
+  <!--
+    Private=false : ne pas recopier les DLL de la plateforme dans bin/.
+    ATAS les fournit déjà au runtime ; on ne veut que NqContextLevels.dll en sortie.
+  -->
+  <ItemGroup>
+    <Reference Include="ATAS.Indicators">
+      <HintPath>/Applications/ATAS X.app/Contents/MonoBundle/ATAS.Indicators.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="ATAS.DataFeedsCore">
+      <HintPath>/Applications/ATAS X.app/Contents/MonoBundle/ATAS.DataFeedsCore.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Utils.Common">
+      <HintPath>/Applications/ATAS X.app/Contents/MonoBundle/Utils.Common.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- RenderContext / RenderPen / RenderFont vivent ici, pas dans ATAS.Indicators. -->
+    <Reference Include="OFT.Rendering">
+      <HintPath>/Applications/ATAS X.app/Contents/MonoBundle/OFT.Rendering.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <!-- HelpLinkAttribute : lien « More details » de l'onglet About. -->
+    <Reference Include="OFT.Attributes">
+      <HintPath>/Applications/ATAS X.app/Contents/MonoBundle/OFT.Attributes.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>
